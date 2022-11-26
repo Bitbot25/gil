@@ -1,18 +1,15 @@
 #![allow(dead_code)]
-use std::ops::{Add, AddAssign};
+pub mod mir;
+pub mod x8664gen;
 
-// TODO: Create macro to count.
-pub const AMD64_EAX: Register = Register(0);
-pub const AMD64_EBX: Register = Register(1);
-pub const AMD64_ECX: Register = Register(2);
-pub const FIRST_VIRT_REG: Register = Register(3);
+use std::ops::{Add, AddAssign};
 
 #[derive(Copy, Clone, Debug)]
 pub struct Register(usize);
 
 impl Default for Register {
     fn default() -> Register {
-        FIRST_VIRT_REG
+        Register((mir::MIR_LAST_HARD_REGISTER + 1) as usize)
     }
 }
 
@@ -107,6 +104,16 @@ impl Builder {
     pub fn salloc(&mut self, bytes: usize) -> Register {
         let dest = self.next_gen();
         self.ops.push(Op::SAlloc(OpSAlloc { dest, bytes }));
+        dest
+    }
+
+    #[inline]
+    pub fn copy<R: Into<RValue>>(&mut self, rhs: R) -> Register {
+        let dest = self.next_gen();
+        self.ops.push(Op::Mvr(OpMvr {
+            dest,
+            val: rhs.into(),
+        }));
         dest
     }
 

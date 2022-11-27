@@ -1,4 +1,4 @@
-use gil::mir;
+use gil::asm;
 use gil::Builder;
 use std::arch::asm;
 use std::{mem, ptr};
@@ -12,13 +12,14 @@ const MAP_SHARED: u64 = 0x01;
 const MAP_PRIVATE: u64 = 0x02;
 const MAP_ANONYMOUS: u64 = 0x20;
 
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
 unsafe fn mmap_raw(
     addr: *mut u8,
-    length: u64,
+    length: usize,
     prot: u64,
     flags: u64,
     fd: i64,
-    offset: u64,
+    offset: usize,
 ) -> *mut u8 {
     let mut result: u64 = 9;
     asm!(
@@ -37,21 +38,75 @@ unsafe fn mmap_raw(
     result as *mut u8
 }
 
+#[cfg(all(target_os = "linux", target_pointer_width = "64"))]
+unsafe fn munmap_raw(addr: *mut u8, length: usize) {
+    asm!(
+        "mov rax, 11",
+        "syscall",
+        out("rax") _,
+        out("rcx") _,
+        out("r11") _,
+        in("rdi") addr,
+        in("rsi") length,
+    );
+}
+
+#[cfg(not(all(target_os = "linux", target_pointer_width = "64")))]
+compile_error! { "Only 64-bit linux is supported." }
+
+struct MemHandle {
+    buf: *mut u8,
+    map_sz: usize,
+}
+
+impl MemHandle {
+    pub unsafe fn alloc(size: usize, prot: u64, flags: u64, fd: i64, offset: usize) -> MemHandle {
+        let ptr = mmap_raw(ptr::null_mut(), size, prot, flags, fd, offset);
+        MemHandle {
+            buf: ptr,
+            map_sz: size,
+        }
+    }
+
+    pub unsafe fn alloc_copy<T>(
+        size: usize,
+        prot: u64,
+        flags: u64,
+        fd: i64,
+        offset: usize,
+        value: &[T],
+    ) -> MemHandle {
+        let handle = Self::alloc(size, prot, flags, fd, offset);
+        ptr::copy_nonoverlapping(value.as_ptr(), handle.buf as *mut T, value.len());
+        handle
+    }
+
+    pub fn ptr(&self) -> *mut u8 {
+        self.buf
+    }
+}
+
+impl std::ops::Drop for MemHandle {
+    fn drop(&mut self) {
+        unsafe { munmap_raw(self.buf, self.map_sz) }
+    }
+}
+
 fn main() {
     let mut builder = Builder::default();
-    let v0 = builder.copy(gil::Number::UInt32(10));
+    let _v0 = builder.copy(gil::Number::UInt32(10));
     dbg!(builder);
 
     let instructions = vec![
-        mir::X8664Instruction::Mov {
-            dest: mir::MIR_X86_64_ECX,
-            src: mir::X8664MovArg::Immediate32(42),
+        asm::X8664Instruction::Mov {
+            dest: gil::REG_X86_64_ECX,
+            src: asm::X8664MovArg::Immediate32(42),
         },
-        mir::X8664Instruction::Mov {
-            dest: mir::MIR_X86_64_EAX,
-            src: mir::X8664MovArg::Register(mir::MIR_X86_64_ECX),
+        asm::X8664Instruction::Mov {
+            dest: gil::REG_X86_64_EAX,
+            src: asm::X8664MovArg::Register(gil::REG_X86_64_ECX),
         },
-        mir::X8664Instruction::RetNear,
+        asm::X8664Instruction::RetNear,
     ];
     let code: Vec<u8> = instructions
         .iter()
@@ -63,17 +118,16 @@ fn main() {
         println!("0b{0:08b} | {0:#x}", b);
     }
 
-    let exec = unsafe {
-        mmap_raw(
-            ptr::null_mut(),
+    let handle = unsafe {
+        MemHandle::alloc_copy(
             4096,
-            PROT_READ | PROT_WRITE | PROT_EXEC,
-            MAP_PRIVATE | MAP_ANONYMOUS,
+            PROT_EXEC | PROT_READ | PROT_WRITE,
+            MAP_ANONYMOUS | MAP_PRIVATE,
             -1,
             0,
+            code.as_slice(),
         )
     };
-    unsafe { ptr::copy_nonoverlapping(code.as_ptr(), exec, code.len()) }
-    let fn_ptr: extern "C" fn() -> u32 = unsafe { mem::transmute(exec) };
-    dbg!(fn_ptr());
+    let function: extern "C" fn() -> u32 = unsafe { mem::transmute(handle.ptr()) };
+    dbg!(function());
 }

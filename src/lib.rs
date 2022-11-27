@@ -1,31 +1,9 @@
 #![allow(dead_code)]
+pub mod asm;
 pub mod mir;
+mod reg;
 pub mod x8664gen;
-
-use std::ops::{Add, AddAssign};
-
-#[derive(Copy, Clone, Debug)]
-pub struct Register(usize);
-
-impl Default for Register {
-    fn default() -> Register {
-        Register((mir::MIR_LAST_HARD_REGISTER + 1) as usize)
-    }
-}
-
-impl Add<usize> for Register {
-    type Output = Register;
-
-    fn add(self, other: usize) -> Self::Output {
-        Register(self.0 + other)
-    }
-}
-
-impl AddAssign<usize> for Register {
-    fn add_assign(&mut self, other: usize) {
-        self.0 += other;
-    }
-}
+pub use reg::*;
 
 #[derive(Debug)]
 pub enum Number {
@@ -89,13 +67,13 @@ pub enum Op {
 #[derive(Debug, Default)]
 pub struct Builder {
     ops: Vec<Op>,
-    next_reg: Register,
+    next_reg: usize,
 }
 
 impl Builder {
     #[inline]
     fn next_gen(&mut self) -> Register {
-        let reg = self.next_reg;
+        let reg = Register::Pseudo(self.next_reg);
         self.next_reg += 1;
         reg
     }

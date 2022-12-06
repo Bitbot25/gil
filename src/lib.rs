@@ -32,12 +32,6 @@ impl From<Number> for RValue {
 }
 
 #[derive(Debug)]
-pub struct OpSAlloc {
-    dest: Register,
-    bytes: usize,
-}
-
-#[derive(Debug)]
 pub struct OpMvr {
     dest: Register,
     val: RValue,
@@ -58,10 +52,26 @@ pub struct OpAdd {
 
 #[derive(Debug)]
 pub enum Op {
-    SAlloc(OpSAlloc),
     Mvr(OpMvr),
     Mvp(OpMvp),
     Add(OpAdd),
+}
+
+impl OpMvr {
+    fn asm_x8664(&self) -> Vec<asm::X8664Instruction> {
+        vec![asm::X8664Instruction::Mov {
+            dest: todo!(),
+            src: match self.val {
+                RValue::Register(reg) => todo!(),
+                RValue::Number(Number::UInt32(n)) => asm::X8664MovArg::Immediate32(n),
+                RValue::Number(Number::Int32(n)) => {
+                    asm::X8664MovArg::Immediate32(unsafe { std::mem::transmute::<i32, u32>(n) })
+                }
+                RValue::Number(Number::UInt64(n)) => todo!(),
+                RValue::Number(Number::Int64(n)) => todo!(),
+            },
+        }]
+    }
 }
 
 #[derive(Debug, Default)]
@@ -76,13 +86,6 @@ impl Builder {
         let reg = Register::Pseudo(self.next_reg);
         self.next_reg += 1;
         reg
-    }
-
-    #[inline]
-    pub fn salloc(&mut self, bytes: usize) -> Register {
-        let dest = self.next_gen();
-        self.ops.push(Op::SAlloc(OpSAlloc { dest, bytes }));
-        dest
     }
 
     #[inline]

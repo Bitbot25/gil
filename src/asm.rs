@@ -1,5 +1,12 @@
 use crate::reg;
 
+pub enum X8664Mode {
+    Bit64,
+    Bit32,
+    Bit16,
+    Bit8,
+}
+
 pub enum X8664Instruction {
     Mov {
         dest: reg::HardRegister,
